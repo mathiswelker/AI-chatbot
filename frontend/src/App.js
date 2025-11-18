@@ -33,8 +33,8 @@ function App() {
     setIsTyping(true);
 
     try {
-      // 🔥 Call your Azure Static Web App API
-      const response = await fetch("/api/chat", {
+      //  Call your Azure Static Web App API
+      const response = await fetch("/api/test", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -46,7 +46,7 @@ function App() {
 
       // Bot response from API
       const botMessage = {
-        message: data.reply || "Keine Antwort erhalten 😕",
+        message: data.reply || "Keine Antwort erhalten",
         sender: "bot",
         direction: "incoming"
       };
@@ -58,7 +58,7 @@ function App() {
       setMessages((prev) => [
         ...prev,
         {
-          message: "Fehler bei der Serveranfrage ❌",
+          message: "Fehler bei der Serveranfrage",
           sender: "bot",
           direction: "incoming"
         }
