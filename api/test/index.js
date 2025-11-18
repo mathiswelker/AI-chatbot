@@ -1,7 +1,9 @@
 module.exports = async function (context, req) {
   const userMessage = req.body?.message || "Hello";
-  return {
+  
+  context.res = {
     status: 200,
-    body: { message: `You said: "${userMessage}"` },
-  };
+    headers: { "Content-Type": "application/json" },
+    body: { message: You said: "${userMessage}" }
+  };
 };
