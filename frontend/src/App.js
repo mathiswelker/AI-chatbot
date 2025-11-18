@@ -23,26 +23,49 @@ function App() {
   const handleSend = async (text) => {
     if (!text) return;
 
-    // User message
+    // Add user message to UI
     const userMessage = {
       message: text,
       sender: "user",
       direction: "outgoing"
     };
-
     setMessages((prev) => [...prev, userMessage]);
     setIsTyping(true);
 
-    // Fake bot answer for now
-    setTimeout(() => {
-      const botResponse = {
-        message: "Das ist eine Beispielantwort 😊",
+    try {
+      // 🔥 Call your Azure Static Web App API
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ message: text })
+      });
+
+      const data = await response.json();
+
+      // Bot response from API
+      const botMessage = {
+        message: data.reply || "Keine Antwort erhalten 😕",
         sender: "bot",
         direction: "incoming"
       };
-      setMessages((prev) => [...prev, botResponse]);
-      setIsTyping(false);
-    }, 1200);
+
+      setMessages((prev) => [...prev, botMessage]);
+    } catch (err) {
+      console.error("API Fehler:", err);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          message: "Fehler bei der Serveranfrage ❌",
+          sender: "bot",
+          direction: "incoming"
+        }
+      ]);
+    }
+
+    setIsTyping(false);
   };
 
   return (
