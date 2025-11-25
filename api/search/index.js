@@ -14,7 +14,7 @@ module.exports = async function (context, req) {
     // Environment variables
     const searchEndpoint = process.env.SEARCH_ENDPOINT;
     const searchKey = process.env.SEARCH_KEY;
-    const indexName = process.env.SEARCH_INDEX;
+    const indexName = process.env.SEARCH_INDEX_RAG;
 
     if (!searchEndpoint || !searchKey || !indexName) {
       context.log.error("Missing SEARCH_ENDPOINT / SEARCH_KEY / SEARCH_INDEX env var(s).");
@@ -83,5 +83,6 @@ module.exports = async function (context, req) {
     };
   }
 };
+
 
 
