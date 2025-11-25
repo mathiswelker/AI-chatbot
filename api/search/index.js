@@ -1,8 +1,13 @@
+// api/search/index.js (oder dein Function-Pfad)
+
 const { SearchClient, AzureKeyCredential } = require("@azure/search-documents");
 
 module.exports = async function (context, req) {
+  context.log("HTTP trigger 'search' processed a request.");
+
   try {
-    const query = req.body?.query;
+    // Query aus Body (Frontend schickt { query: "..." })
+    const query = req.body?.query || req.query?.q;
     if (!query) {
       context.res = {
         status: 400,
@@ -11,13 +16,18 @@ module.exports = async function (context, req) {
       return;
     }
 
-    // Environment variables
+    // Environment-Variablen
     const searchEndpoint = process.env.SEARCH_ENDPOINT;
     const searchKey = process.env.SEARCH_KEY;
-    const indexName = process.env.SEARCH_INDEX_RAG;
+
+    // bevorzugt RAG-Index, fallback auf normalen Index
+    const indexName =
+      process.env.SEARCH_INDEX_RAG || process.env.SEARCH_INDEX;
 
     if (!searchEndpoint || !searchKey || !indexName) {
-      context.log.error("Missing SEARCH_ENDPOINT / SEARCH_KEY / SEARCH_INDEX_RAG env var(s).");
+      context.log.error(
+        "Missing SEARCH_ENDPOINT / SEARCH_KEY / SEARCH_INDEX_RAG or SEARCH_INDEX env var(s)."
+      );
       context.res = {
         status: 500,
         body: { error: "Search service not configured." }
@@ -25,15 +35,25 @@ module.exports = async function (context, req) {
       return;
     }
 
-    // Create client
+    context.log("Using search index:", indexName);
+
+    // Search Client
     const client = new SearchClient(
       searchEndpoint,
       indexName,
       new AzureKeyCredential(searchKey)
     );
 
-    // Perform the search (limit results with top)
-    const resultsIterator = await client.search(query, { top: 5 });
+    // Suche starten (RAG-Index kann trotzdem normal mit query durchsucht werden)
+    const searchOptions = {
+      top: 5,
+      includeTotalCount: true
+      // optional: weitere Optionen wie semantic search, filter, etc.
+      // queryType: "semantic",
+      // queryLanguage: "de-de",
+    };
+
+    const resultsIterator = await client.search(query, searchOptions);
 
     const results = [];
     for await (const r of resultsIterator.results) {
@@ -43,6 +63,8 @@ module.exports = async function (context, req) {
       });
     }
 
+    context.log("Anzahl Treffer:", results.length);
+
     // Antworttext fürs Frontend bauen
     let answerText = "";
 
@@ -51,14 +73,25 @@ module.exports = async function (context, req) {
     } else {
       const firstDoc = results[0].document;
 
-      // Diese Feldnamen an dein Index-Schema anpassen
+      // Titel-Feld: versuche mehrere typische RAG-Felder
       const title =
         firstDoc.title ||
         firstDoc.fileName ||
+        firstDoc.file_name ||
+        firstDoc.metadata_title ||
+        firstDoc.filename ||
         "Gefundenes Dokument";
 
+      // Inhaltsfeld: versuche mehrere typische Feldnamen
       const contentSnippet =
-        (firstDoc.content || firstDoc.text || "")
+        (
+          firstDoc.content ||
+          firstDoc.chunk ||
+          firstDoc.pageContent ||
+          firstDoc.text ||
+          firstDoc.page_text ||
+          ""
+        )
           .toString()
           .slice(0, 400);
 
@@ -67,8 +100,12 @@ module.exports = async function (context, req) {
         `Titel: ${title}\n\nAusschnitt:\n${contentSnippet}`;
     }
 
+    // Antwort für dein Frontend (data.answer)
     context.res = {
       status: 200,
+      headers: {
+        "Content-Type": "application/json"
+      },
       body: {
         query,
         results,
@@ -83,7 +120,3 @@ module.exports = async function (context, req) {
     };
   }
 };
-
-
-
-
