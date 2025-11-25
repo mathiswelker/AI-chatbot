@@ -17,7 +17,7 @@ module.exports = async function (context, req) {
     const indexName = process.env.SEARCH_INDEX_RAG;
 
     if (!searchEndpoint || !searchKey || !indexName) {
-      context.log.error("Missing SEARCH_ENDPOINT / SEARCH_KEY / SEARCH_INDEX env var(s).");
+      context.log.error("Missing SEARCH_ENDPOINT / SEARCH_KEY / SEARCH_INDEX_RAG env var(s).");
       context.res = {
         status: 500,
         body: { error: "Search service not configured." }
@@ -83,6 +83,7 @@ module.exports = async function (context, req) {
     };
   }
 };
+
 
 
 
