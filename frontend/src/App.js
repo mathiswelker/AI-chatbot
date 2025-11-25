@@ -21,52 +21,40 @@ function App() {
   const [isTyping, setIsTyping] = useState(false);
 
   const handleSend = async (text) => {
-    if (!text) return;
+  if (!text) return;
 
-    // Add user message to UI
-    const userMessage = {
-      message: text,
-      sender: "user",
-      direction: "outgoing"
+  // Add user message to UI
+  const userMessage = { message: text, sender: "user", direction: "outgoing" };
+  setMessages((prev) => [...prev, userMessage]);
+  setIsTyping(true);
+
+  try {
+    // Call your Azure Function that queries Search (and optionally GPT)
+    const response = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: text })
+    });
+
+    const data = await response.json();
+
+    // Bot / answer message from your API
+    const botMessage = {
+      message: data.answer || "Keine Antwort erhalten",
+      sender: "bot",
+      direction: "incoming"
     };
-    setMessages((prev) => [...prev, userMessage]);
-    setIsTyping(true);
+    setMessages((prev) => [...prev, botMessage]);
+  } catch (err) {
+    console.error("API Fehler:", err);
+    setMessages((prev) => [
+      ...prev,
+      { message: "Fehler bei der Serveranfrage", sender: "bot", direction: "incoming" }
+    ]);
+  }
 
-    try {
-      //  Call your Azure Static Web App API
-      const response = await fetch("/api/test", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ message: text })
-      });
-
-      const data = await response.json();
-
-      // Bot response from API
-      const botMessage = {
-        message: data.reply || "Keine Antwort erhalten",
-        sender: "bot",
-        direction: "incoming"
-      };
-
-      setMessages((prev) => [...prev, botMessage]);
-    } catch (err) {
-      console.error("API Fehler:", err);
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          message: "Fehler bei der Serveranfrage",
-          sender: "bot",
-          direction: "incoming"
-        }
-      ]);
-    }
-
-    setIsTyping(false);
-  };
+  setIsTyping(false);
+};
 
   return (
     <div style={{ height: "100vh" }}>
