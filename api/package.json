@@ -1,6 +1,8 @@
 {
-  "name": "swa-api",
+  "name": "api",
   "version": "1.0.0",
-  "main": "index.js",
-  "dependencies": {}
+  "type": "commonjs",
+  "dependencies": {
+    "@azure/search-documents": "^12.0.0"
+  }
 }
