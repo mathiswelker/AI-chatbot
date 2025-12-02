@@ -43,7 +43,7 @@ module.exports = async function (context, req) {
     const aoaiEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
     const aoaiKey = process.env.AZURE_OPENAI_API_KEY;
     const aoaiDeployment = process.env.AZURE_OPENAI_DEPLOYMENT;
-    const aoaiApiVersion = process.env.AZURE_OPENAI_API_VERSION || "2024-06-01";
+    const aoaiApiVersion = "2024-10-21"
 
     // Nur „ungefährliche“ Infos loggen (keine Keys!)
     context.log("searchEndpoint:", searchEndpoint);
@@ -135,4 +135,5 @@ ${contextText}
     `.trim();
 
     const compl
+
 
