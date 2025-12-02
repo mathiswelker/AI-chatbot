@@ -1,32 +1,13 @@
-"use strict";
+// api/search/index.js (oder dein Function-Pfad)
 
 const { SearchClient, AzureKeyCredential } = require("@azure/search-documents");
-const { AzureOpenAI } = require("openai");
 
-/**
- * HTTP-Trigger-Funktion für RAG (Azure AI Search + Azure OpenAI).
- *
- * Request-Body:
- *  { "query": "deine Frage" }
- *
- * Response (200):
- *  {
- *    "answer": "Antwort des Chatbots",
- *    "sources": [ ... getroffene Dokumente ... ]
- *  }
- */
 module.exports = async function (context, req) {
-  context.log("RAG-Function aufgerufen.");
+  context.log("HTTP trigger 'search' processed a request.");
 
   try {
-    // -------- 1. User-Query einlesen --------
-    const query =
-      (req.body && req.body.query) ||
-      (req.query && req.query.q) ||
-      null;
-
-    context.log("User-Query:", query);
-
+    // Query aus Body (Frontend schickt { query: "..." })
+    const query = req.body?.query || req.query?.q;
     if (!query) {
       context.res = {
         status: 400,
@@ -35,105 +16,107 @@ module.exports = async function (context, req) {
       return;
     }
 
-    // -------- 2. Environment-Variablen einlesen --------
+    // Environment-Variablen
     const searchEndpoint = process.env.SEARCH_ENDPOINT;
     const searchKey = process.env.SEARCH_KEY;
-    const indexName = process.env.SEARCH_INDEX_RAG;
 
-    const aoaiEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
-    const aoaiKey = process.env.AZURE_OPENAI_API_KEY;
-    const aoaiDeployment = process.env.AZURE_OPENAI_DEPLOYMENT;
-    const aoaiApiVersion = "2024-10-21"
-
-    // Nur „ungefährliche“ Infos loggen (keine Keys!)
-    context.log("searchEndpoint:", searchEndpoint);
-    context.log("indexName:", indexName);
-    context.log("aoaiEndpoint:", aoaiEndpoint);
-    context.log("aoaiDeployment:", aoaiDeployment);
+    // bevorzugt RAG-Index, fallback auf normalen Index
+    const indexName =
+      process.env.SEARCH_INDEX_RAG || process.env.SEARCH_INDEX;
 
     if (!searchEndpoint || !searchKey || !indexName) {
-      throw new Error(
-        "Search service not configured. CHECK: SEARCH_ENDPOINT / SEARCH_KEY / SEARCH_INDEX_RAG"
+      context.log.error(
+        "Missing SEARCH_ENDPOINT / SEARCH_KEY / SEARCH_INDEX_RAG or SEARCH_INDEX env var(s)."
       );
-    }
-    if (!aoaiEndpoint || !aoaiKey || !aoaiDeployment) {
-      throw new Error(
-        "Azure OpenAI not configured. CHECK: AZURE_OPENAI_ENDPOINT / AZURE_OPENAI_API_KEY / AZURE_OPENAI_DEPLOYMENT"
-      );
+      context.res = {
+        status: 500,
+        body: { error: "Search service not configured." }
+      };
+      return;
     }
 
-    // -------- 3. Azure AI Search: Dokumente holen --------
-    const searchClient = new SearchClient(
+    context.log("Using search index:", indexName);
+
+    // Search Client
+    const client = new SearchClient(
       searchEndpoint,
       indexName,
       new AzureKeyCredential(searchKey)
     );
 
-    // WICHTIG: Felder an dein Index-Schema anpassen!
-    // "id", "title", "content" müssen im Index existieren.
-    const searchResults = await searchClient.search(query, {
+    // Suche starten (RAG-Index kann trotzdem normal mit query durchsucht werden)
+    const searchOptions = {
       top: 5,
-      select: ["id", "title", "content"],
-      queryType: "simple"
-    });
+      includeTotalCount: true
+      // optional: weitere Optionen wie semantic search, filter, etc.
+      // queryType: "semantic",
+      // queryLanguage: "de-de",
+    };
 
-    const sources = [];
-    for await (const result of searchResults.results) {
-      const doc = result.document;
-      sources.push({
-        id: doc.id,
-        title: doc.title,
-        // Text etwas beschneiden, damit nicht zu viel an OpenAI geht
-        content: (doc.content || "").slice(0, 2000)
+    const resultsIterator = await client.search(query, searchOptions);
+
+    const results = [];
+    for await (const r of resultsIterator.results) {
+      results.push({
+        score: r.score,
+        document: r.document
       });
     }
 
-    if (sources.length === 0) {
-      context.res = {
-        status: 200,
-        body: {
-          answer:
-            "Ich habe in den vorhandenen Dokumenten keine passenden Informationen gefunden.",
-          sources: []
-        }
-      };
-      return;
+    context.log("Anzahl Treffer:", results.length);
+
+    // Antworttext fürs Frontend bauen
+    let answerText = "";
+
+    if (results.length === 0) {
+      answerText = "Ich habe leider keine passenden Dokumente gefunden.";
+    } else {
+      const firstDoc = results[0].document;
+
+      // Titel-Feld: versuche mehrere typische RAG-Felder
+      const title =
+        firstDoc.title ||
+        firstDoc.fileName ||
+        firstDoc.file_name ||
+        firstDoc.metadata_title ||
+        firstDoc.filename ||
+        "Gefundenes Dokument";
+
+      // Inhaltsfeld: versuche mehrere typische Feldnamen
+      const contentSnippet =
+        (
+          firstDoc.content ||
+          firstDoc.chunk ||
+          firstDoc.pageContent ||
+          firstDoc.text ||
+          firstDoc.page_text ||
+          ""
+        )
+          .toString()
+          .slice(0, 400);
+
+      answerText =
+        `Ich habe folgendes Dokument gefunden:\n\n` +
+        `Titel: ${title}\n\nAusschnitt:\n${contentSnippet}`;
     }
 
-    // Kontext-Text für das LLM zusammenbauen
-    const contextText = sources
-      .map(
-        (s, i) =>
-          `Quelle ${i + 1} (Titel: ${s.title || "ohne Titel"}):\n${s.content}`
-      )
-      .join("\n\n-----\n\n");
-
-    // -------- 4. Azure OpenAI: Antwort generieren --------
-    const client = new AzureOpenAI({
-      endpoint: aoaiEndpoint,
-      apiKey: aoaiKey,
-      deployment: aoaiDeployment,
-      apiVersion: aoaiApiVersion
-    });
-
-    const systemPrompt = `
-Du bist ein deutschsprachiger Assistent für Bagger-Handbücher.
-Antworte nur mit Informationen aus den bereitgestellten Quellen.
-Wenn etwas nicht in den Quellen steht, sag ehrlich, dass du es nicht weißt.
-Antworte kurz, klar und in verständlichem Deutsch.
-    `.trim();
-
-    const userPrompt = `
-Frage des Benutzers:
-${query}
-
-Nutze ausschließlich die folgenden Ausschnitte aus dem Handbuch, um die Frage zu beantworten.
-Wenn die Information nicht enthalten ist, erkläre das.
-
-Quellen:
-${contextText}
-    `.trim();
-
-    const compl
-
-
+    // Antwort für dein Frontend (data.answer)
+    context.res = {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: {
+        query,
+        results,
+        answer: answerText
+      }
+    };
+  } catch (err) {
+    context.log.error("Search function error:", err);
+    context.res = {
+      status: 500,
+      body: { error: "Search failed", details: err.message }
+    };
+  }
+};
