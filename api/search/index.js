@@ -124,4 +124,63 @@ module.exports = async function (context, req) {
 
         // System-Prompt zur Steuerung des GPT-4o mini Modells
         const systemPrompt = 
-            "Du bist ein hilfreicher und präziser Chatbot. Deine Aufgabe ist es, die Benutzerfrage strikt basierend auf dem unten bereitgestellten Quellmaterial zu beantworten."
+            "Du bist ein hilfreicher und präziser Chatbot. Deine Aufgabe ist es, die Benutzerfrage strikt basierend auf dem unten bereitgestellten Quellmaterial zu beantworten. " +
+            "Wenn die Antwort nicht in den Quellen enthalten ist, sage höflich, dass du die Information nicht finden konntest. " +
+            "Antworte immer in der Sprache der Frage und füge für jede Antwortpassage, die du aus den Quellen generierst, Referenzen in Klammern hinzu (z.B. [Quelle 1])."; // <<< DEIN VORHERIGER CODE ENDETE HIER!
+
+        const messages = [
+            { role: "system", content: systemPrompt },
+            // Zusammenführung von Kontext und Benutzerfrage in einem Prompt
+            { role: "user", content: `Quellmaterial:\n---\n${contextText}\n---\nBenutzerfrage: ${query}` }
+        ];
+
+        const chatCompletion = await openaiClient.getChatCompletions(
+            deploymentName, // Z.B. 'rag-gpt4o-mini'
+            messages,
+            {
+                temperature: 0.2, // Niedrige Temperatur für faktenbasierte Antworten
+                maxTokens: 1200 // Maximalbegrenzung der Antwortlänge
+            }
+        );
+
+        const llmAnswer = chatCompletion.choices[0].message.content;
+
+        // ----------------------------------------------------------------
+        // D. OUTPUT (Antwort an das Frontend senden)
+        // ----------------------------------------------------------------
+
+        context.res = {
+            status: 200,
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: {
+                query,
+                results, 
+                answer: llmAnswer // Die vom LLM generierte, aufbereitete Antwort!
+            }
+        };
+        
+    } catch (err) {
+        // --- HIER IST DER NEUE DETAIL-LOGGING-BLOCK ---
+        let errorDetails = err.message || "Unbekannter Fehler im RAG-Prozess";
+        
+        // Versuche, den Fehlercode und Details aus dem OpenAI-SDK zu extrahieren
+        if (err.statusCode) {
+            // Fängt HTTP-Fehler (z.B. 401 oder 404)
+            errorDetails = `HTTP-Status: ${err.statusCode} | Meldung: ${err.message}`;
+        } else if (err.code) {
+             // Fängt Netzwerkfehler (z.B. ECONNREFUSED)
+             errorDetails = `Code: ${err.code} | Meldung: ${err.message}`;
+        }
+        
+        // Schreibe den detaillierten Fehler in den Function App Log Stream
+        context.log.error("RAG FATAL ERROR (Details):", errorDetails);
+        
+        // Sende den Fehlercode und die Details zurück, damit der Serverfehler sichtbar wird
+        context.res = {
+            status: 500,
+            body: { error: "RAG process failed", details: errorDetails }
+        };
+    }
+};
