@@ -4,6 +4,7 @@
   "type": "commonjs",
   "dependencies": {
     "@azure/search-documents": "^12.0.0",
-    "@azure/openai": "^1.0.0-beta.1"  // <<< NEU HINZUGEFÜGT!
+    "@azure/openai": "^1.0.0-beta.1"
   }
 }
+
