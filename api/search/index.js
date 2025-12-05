@@ -82,7 +82,8 @@ module.exports = async function (context, req) {
         }
 
         context.log("Anzahl Treffer:", results.length);
-
+        // NEUE LOG-AUSGABE 1
+        
         // ----------------------------------------------------------------
         // B. AUGMENTATION (Kontext für das LLM erstellen)
         // ----------------------------------------------------------------
@@ -112,6 +113,10 @@ module.exports = async function (context, req) {
             // Fallback, wenn nichts gefunden wird
             contextText = "Keine relevanten Dokumente gefunden. Antworte basierend auf deinem allgemeinen Wissen oder sage, dass die Information fehlt.";
         }
+        
+        // NEUE LOG-AUSGABE 2
+        context.log("Generierter Kontext (Länge):", contextText.length);
+
 
         // ----------------------------------------------------------------
         // C. GENERATION (Antwort durch Azure OpenAI erstellen)
@@ -126,7 +131,7 @@ module.exports = async function (context, req) {
         const systemPrompt = 
             "Du bist ein hilfreicher und präziser Chatbot. Deine Aufgabe ist es, die Benutzerfrage strikt basierend auf dem unten bereitgestellten Quellmaterial zu beantworten. " +
             "Wenn die Antwort nicht in den Quellen enthalten ist, sage höflich, dass du die Information nicht finden konntest. " +
-            "Antworte immer in der Sprache der Frage und füge für jede Antwortpassage, die du aus den Quellen generierst, Referenzen in Klammern hinzu (z.B. [Quelle 1])."; // <<< DEIN VORHERIGER CODE ENDETE HIER!
+            "Antworte immer in der Sprache der Frage und füge für jede Antwortpassage, die du aus den Quellen generierst, Referenzen in Klammern hinzu (z.B. [Quelle 1])."; 
 
         const messages = [
             { role: "system", content: systemPrompt },
@@ -143,7 +148,17 @@ module.exports = async function (context, req) {
             }
         );
 
-        const llmAnswer = chatCompletion.choices[0].message.content;
+        let llmAnswer = chatCompletion.choices[0].message.content; // WICHTIG: 'const' durch 'let' ersetzt
+
+        // NEUE LOG-AUSGABE 3 & FALLBACK
+        context.log("LLM Antwort (Länge):", llmAnswer ? llmAnswer.length : "EMPTY");
+        
+        // --- Zusätzlicher Fallback-Check: Wenn LLM leer antwortet ---
+        if (!llmAnswer || llmAnswer.trim() === "") {
+             llmAnswer = "Entschuldigung, ich konnte keine passende Antwort generieren, auch nicht mit dem bereitgestellten Kontext.";
+             context.log.warn("WARNUNG: Leere LLM-Antwort. Frontend erhält Fallback-Text.");
+        }
+        
 
         // ----------------------------------------------------------------
         // D. OUTPUT (Antwort an das Frontend senden)
@@ -162,22 +177,17 @@ module.exports = async function (context, req) {
         };
         
     } catch (err) {
-        // --- HIER IST DER NEUE DETAIL-LOGGING-BLOCK ---
+        // --- DETAIL-LOGGING-BLOCK (UNVERÄNDERT) ---
         let errorDetails = err.message || "Unbekannter Fehler im RAG-Prozess";
         
-        // Versuche, den Fehlercode und Details aus dem OpenAI-SDK zu extrahieren
         if (err.statusCode) {
-            // Fängt HTTP-Fehler (z.B. 401 oder 404)
             errorDetails = `HTTP-Status: ${err.statusCode} | Meldung: ${err.message}`;
         } else if (err.code) {
-             // Fängt Netzwerkfehler (z.B. ECONNREFUSED)
              errorDetails = `Code: ${err.code} | Meldung: ${err.message}`;
         }
         
-        // Schreibe den detaillierten Fehler in den Function App Log Stream
         context.log.error("RAG FATAL ERROR (Details):", errorDetails);
         
-        // Sende den Fehlercode und die Details zurück, damit der Serverfehler sichtbar wird
         context.res = {
             status: 500,
             body: { error: "RAG process failed", details: errorDetails }
