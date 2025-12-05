@@ -3,7 +3,6 @@
 // --- 1. Imports ---
 const { SearchClient, AzureKeyCredential } = require("@azure/search-documents");
 const { OpenAIClient } = require("@azure/openai"); 
-// Hinweis: Bitte sicherstellen, dass '@azure/openai' via 'npm install @azure/openai' installiert wurde.
 
 module.exports = async function (context, req) {
     context.log("HTTP trigger 'search' processed a request.");
@@ -125,4 +124,4 @@ module.exports = async function (context, req) {
 
         // System-Prompt zur Steuerung des GPT-4o mini Modells
         const systemPrompt = 
-            "Du bist ein hilfreicher und präziser Chatbot. Deine Aufgabe ist es, die Benutzerfrage strikt basierend auf dem unten bereitgestellten Quellmaterial zu beantworten. " +
+            "Du bist ein hilfreicher und präziser Chatbot. Deine Aufgabe ist es, die Benutzerfrage strikt basierend auf dem unten bereitgestellten Quellmaterial zu beantworten."
