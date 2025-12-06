@@ -52,19 +52,21 @@ module.exports = async function (context, req) {
             // 1. HYBRID SUCHE: Vektor-Abfrage für das 'text_vector'-Feld definieren
             vectors: [{
                 value: query, // Die Benutzerabfrage wird hier zur Vektorisierung genutzt
-                kNearestNeighborsCount: 50, // Anzahl der Vektoren, die initial gesucht werden
-                fields: ["text_vector"], // Feldname aus Ihrem Index
+                kNearestNeighborsCount: 50, 
+                fields: ["text_vector"], // Ihr Vektorfeld
                 vectorizableFields: [{ 
                     name: "text_vector", 
                     kNearestNeighborsCount: 50, 
-                    vectorConfig: "default-vector-config" // <--- PLATZHALTER ERSETZEN
+                    // EINGEFÜGT: Ihr Vektor-Konfigurationsname
+                    vectorConfig: "rag-1765009892742-azureOpenAi-text-profile"
                 }]
             }],
             
             // 2. SEMANTISCHE RANGFOLGE: Aktivierung des Semantic Rankers
             queryType: "semantic", 
-            semanticConfiguration: "rag-semantic-config", // <--- PLATZHALTER ERSETZEN
-            queryLanguage: "de-de", // Sprache für die semantische Suche festlegen
+            // EINGEFÜGT: Ihr Semantik-Konfigurationsname
+            semanticConfiguration: "rag-1765009892742-semantic-configuration", 
+            queryLanguage: "de-de", 
             
             // 3. VERBESSERTE RÜCKGABE: Liefert die relevantesten Textausschnitte
             captions: "extractive", 
@@ -77,7 +79,7 @@ module.exports = async function (context, req) {
         const resultsIterator = await client.search(query, searchOptions);
 
         const results = [];
-        // NEU: Hinzufügen der Semantic Captions zu den Ergebnissen
+        // NEU: Hinzufügen der Semantic Answers zu den Ergebnissen
         const semanticAnswers = resultsIterator.semanticAnswers || [];
 
         for await (const r of resultsIterator.results) {
@@ -102,17 +104,15 @@ module.exports = async function (context, req) {
         } else {
             // NEU: Versuche, die beste semantische Antwort zu verwenden (falls gefunden)
             if (semanticAnswers.length > 0 && semanticAnswers[0].highlights) {
-                answerText = `Beste semantische Antwort: ${semanticAnswers[0].highlights}\n\n`;
+                // Verwende die Highlighted Answer als beste Antwort
+                answerText = `Beste semantische Antwort: ${semanticAnswers[0].highlights}`;
             } else {
                 // Fallback auf den besten Dokumentenausschnitt (Caption oder Chunk)
                 const firstResult = results[0];
                 const firstDoc = firstResult.document;
                 
-                const title =
-                    firstDoc.title ||
-                    firstDoc.fileName ||
-                    firstDoc.file_name ||
-                    "Gefundenes Dokument";
+                // Wir verwenden das 'title'-Feld, das Sie im Index haben
+                const title = firstDoc.title || "Gefundenes Dokument";
 
                 // Verwende die Semantic Caption, wenn verfügbar, sonst den Chunk
                 const contentSnippet = 
@@ -134,7 +134,6 @@ module.exports = async function (context, req) {
             },
             body: {
                 query,
-                // Füge die semantischen Antworten hinzu, falls das Frontend sie anzeigen soll
                 semanticAnswers: semanticAnswers, 
                 results,
                 answer: answerText
