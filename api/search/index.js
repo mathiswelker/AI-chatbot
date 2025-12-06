@@ -1,4 +1,3 @@
-// api/search/index.js
 
 // --- 1. Imports ---
 // Stellt sicher, dass diese Pakete in der package.json stehen!
@@ -189,3 +188,4 @@ module.exports = async function (context, req) {
         };
     }
 };
+
