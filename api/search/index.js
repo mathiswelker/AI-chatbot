@@ -44,57 +44,41 @@ module.exports = async function (context, req) {
             new AzureKeyCredential(searchKey)
         );
 
-        // NEUE SUCHOPTIONEN: Hybrid-Suche und Semantische Rangfolge aktiviert
+        // KORRIGIERTE SUCHOPTIONEN: Nur Semantische Rangfolge mit sicherem Sprachcode
         const searchOptions = {
             top: 5,
             includeTotalCount: true,
             
-            // 1. HYBRID SUCHE: Vektor-Abfrage für das 'text_vector'-Feld definieren
-            vectors: [{
-                value: query, // Die Benutzerabfrage wird hier zur Vektorisierung genutzt
-                kNearestNeighborsCount: 50, 
-                fields: ["text_vector"], // Ihr Vektorfeld
-                vectorizableFields: [{ 
-                    name: "text_vector", 
-                    kNearestNeighborsCount: 50, 
-                    // EINGEFÜGT: Ihr Vektor-Konfigurationsname
-                    vectorConfig: "rag-1765009892742-azureOpenAi-text-profile"
-                }]
-            }],
-            
-            // 2. SEMANTISCHE RANGFOLGE: Aktivierung des Semantic Rankers
+            // 1. Semantische Rangfolge aktivieren
             queryType: "semantic", 
-            // EINGEFÜGT: Ihr Semantik-Konfigurationsname
+            
+            // 2. Den exakten Namen Ihrer Semantik-Konfiguration
             semanticConfiguration: "rag-1765009892742-semantic-configuration", 
-            queryLanguage: "de-de", 
             
-            // 3. VERBESSERTE RÜCKGABE: Liefert die relevantesten Textausschnitte
+            // 3. KORREKTUR: Sicherer Sprachcode für Deutsch
+            queryLanguage: "de", 
+            
+            // 4. Verbesserte Rückgabe für LLM-Kontext
             captions: "extractive", 
-            answers: "extractive|count-1",
-            
-            // 4. Ausgewählte Felder: Nur die benötigten Felder abrufen
-            select: ["chunk_id", "title", "chunk", "parent_id"] 
+            answers: "extractive|count-1" 
         };
 
         const resultsIterator = await client.search(query, searchOptions);
 
         const results = [];
-        // NEU: Hinzufügen der Semantic Answers zu den Ergebnissen
         const semanticAnswers = resultsIterator.semanticAnswers || [];
 
         for await (const r of resultsIterator.results) {
-            // Holen Sie sich die Semantic Caption, falls vorhanden
             const caption = r.captions?.[0]?.text || null; 
             
             results.push({
                 score: r.score,
-                caption: caption, // Fügen Sie die Caption hinzu
+                caption: caption,
                 document: r.document
             });
         }
 
         context.log("Anzahl Treffer:", results.length);
-        context.log("Semantische Antworten gefunden:", semanticAnswers.length);
 
         // Antworttext fürs Frontend bauen
         let answerText = "";
@@ -102,17 +86,16 @@ module.exports = async function (context, req) {
         if (results.length === 0) {
             answerText = "Ich habe leider keine passenden Dokumente gefunden.";
         } else {
-            // NEU: Versuche, die beste semantische Antwort zu verwenden (falls gefunden)
+            // Versuche, die beste semantische Antwort zu verwenden (falls gefunden)
             if (semanticAnswers.length > 0 && semanticAnswers[0].highlights) {
-                // Verwende die Highlighted Answer als beste Antwort
                 answerText = `Beste semantische Antwort: ${semanticAnswers[0].highlights}`;
             } else {
                 // Fallback auf den besten Dokumentenausschnitt (Caption oder Chunk)
                 const firstResult = results[0];
                 const firstDoc = firstResult.document;
                 
-                // Wir verwenden das 'title'-Feld, das Sie im Index haben
-                const title = firstDoc.title || "Gefundenes Dokument";
+                // Titel-Feld: Wir nutzen das im Index vorhandene 'title' Feld
+                const title = firstDoc.title || firstDoc.fileName || "Gefundenes Dokument";
 
                 // Verwende die Semantic Caption, wenn verfügbar, sonst den Chunk
                 const contentSnippet = 
