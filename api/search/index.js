@@ -105,7 +105,7 @@ module.exports = async function (context, req) {
                 
                 answerText =
                     `Ich habe folgendes Dokument gefunden:\n\n` +
-                    `Titel: ${title}\n\nAusschnitt:\n${contentSnippet.toString().slice(0, 400)}`;
+                    `Titel: ${title}\n\nAusschnitt:\n${contentSnippet.toString().slice(0, 800)}`;
             }
         }
 
@@ -130,3 +130,4 @@ module.exports = async function (context, req) {
         };
     }
 };
+
