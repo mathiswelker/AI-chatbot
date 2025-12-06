@@ -1,130 +1,122 @@
-const { AzureKeyCredential, AzureSearchClient } = require("@azure/search-documents");
-const { OpenAIClient } = require("@azure/openai");
+// api/search/index.js (oder dein Function-Pfad)
+
+const { SearchClient, AzureKeyCredential } = require("@azure/search-documents");
 
 module.exports = async function (context, req) {
-    context.log("RAG Function: Request received.");
+  context.log("HTTP trigger 'search' processed a request.");
 
-    // --- 1. Konfiguration prüfen ---
-    const query = req.body?.query;
+  try {
+    // Query aus Body (Frontend schickt { query: "..." })
+    const query = req.body?.query || req.query?.q;
     if (!query) {
-        context.res = {
-            status: 400,
-            body: { error: "Query parameter is required." }
-        };
-        return;
+      context.res = {
+        status: 400,
+        body: { error: "Missing 'query' in request body." }
+      };
+      return;
     }
 
+    // Environment-Variablen
     const searchEndpoint = process.env.SEARCH_ENDPOINT;
     const searchKey = process.env.SEARCH_KEY;
-    const indexName = process.env.SEARCH_INDEX_RAG || process.env.SEARCH_INDEX;
-    const openaiEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
-    const openaiKey = process.env.AZURE_OPENAI_KEY;
-    const deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
 
-    // Finaler Check der Umgebungsvariablen (zur Sicherheit)
-    if (!searchEndpoint || !searchKey || !indexName || !openaiEndpoint || !openaiKey || !deploymentName) {
-        const missing = [
-            !searchEndpoint ? "SEARCH_ENDPOINT" : null,
-            !searchKey ? "SEARCH_KEY" : null,
-            !indexName ? (process.env.SEARCH_INDEX_RAG ? "SEARCH_INDEX_RAG" : "SEARCH_INDEX") : null,
-            !openaiEndpoint ? "AZURE_OPENAI_ENDPOINT" : null,
-            !openaiKey ? "AZURE_OPENAI_KEY" : null,
-            !deploymentName ? "AZURE_OPENAI_DEPLOYMENT_NAME" : null,
-        ].filter(Boolean).join(", ");
+    // bevorzugt RAG-Index, fallback auf normalen Index
+    const indexName =
+      process.env.SEARCH_INDEX_RAG || process.env.SEARCH_INDEX;
 
-        context.log.error(`SERVER CONFIG ERROR: Missing environment variables: ${missing}`);
-        context.res = {
-            status: 500,
-            body: { 
-                error: "Server Config Error: Missing required environment variables.",
-                details: `Please set the following: ${missing}` 
-            }
-        };
-        return;
+    if (!searchEndpoint || !searchKey || !indexName) {
+      context.log.error(
+        "Missing SEARCH_ENDPOINT / SEARCH_KEY / SEARCH_INDEX_RAG or SEARCH_INDEX env var(s)."
+      );
+      context.res = {
+        status: 500,
+        body: { error: "Search service not configured." }
+      };
+      return;
     }
 
-    // --- 2. Azure Search (Retrieval) ---
-    let contextText = "";
-    try {
-        const searchClient = new AzureSearchClient(searchEndpoint, new AzureKeyCredential(searchKey), indexName);
-        context.log("Attempting Azure Search call...");
+    context.log("Using search index:", indexName);
 
-        const searchOptions = {
-            queryType: "semantic",
-            semanticSearch: {
-                configurationName: "default", // Passen Sie dies bei Bedarf an
-                maxAnswerCount: 1,
-            },
-            select: ["content"],
-            top: 3, // Holen Sie sich die Top 3 Dokumente
-        };
+    // Search Client
+    const client = new SearchClient(
+      searchEndpoint,
+      indexName,
+      new AzureKeyCredential(searchKey)
+    );
 
-        // Rufen Sie die Azure Search API auf
-        const searchResults = await searchClient.search(query, searchOptions);
-        let hitCount = 0;
+    // Suche starten (RAG-Index kann trotzdem normal mit query durchsucht werden)
+    const searchOptions = {
+      top: 5,
+      includeTotalCount: true
+      // optional: weitere Optionen wie semantic search, filter, etc.
+      // queryType: "semantic",
+      // queryLanguage: "de-de",
+    };
 
-        for await (const result of searchResults.results) {
-            contextText += result.document.content + "\n\n";
-            hitCount++;
-        }
-        
-        context.log(`Azure Search Hits: ${hitCount}. Context Text Length: ${contextText.length}`);
+    const resultsIterator = await client.search(query, searchOptions);
 
-        if (contextText.length === 0) {
-            context.log("RAG FALLBACK: Search returned no results. Using generic fallback.");
-            contextText = "Es konnten keine relevanten Dokumente gefunden werden. Bitte formulieren Sie die Frage neu.";
-        }
-
-    } catch (error) {
-        context.log.error(`RAG FATAL ERROR during Azure Search: ${error.message}`);
-        context.res = {
-            status: 500,
-            body: { 
-                error: "Error during document retrieval.",
-                details: `Search Error: ${error.message}` 
-            }
-        };
-        return;
+    const results = [];
+    for await (const r of resultsIterator.results) {
+      results.push({
+        score: r.score,
+        document: r.document
+      });
     }
 
-    // --- 3. Azure OpenAI (Generation) ---
-    try {
-        const systemPrompt = `Sie sind ein hilfreicher Assistent. Generieren Sie eine präzise und freundliche Antwort basierend auf dem bereitgestellten Kontext. Wenn der Kontext die Frage nicht beantwortet, sagen Sie, dass Sie die Antwort nicht kennen. Kontext: ${contextText}`;
+    context.log("Anzahl Treffer:", results.length);
 
-        const openaiClient = new OpenAIClient(openaiEndpoint, new AzureKeyCredential(openaiKey));
-        
-        // DIES IST DIE ZEILE, DIE DEN TIMEOUT VERURSACHT!
-        context.log(`Sending request to OpenAI (Deployment: ${deploymentName})...`); 
+    // Antworttext fürs Frontend bauen
+    let answerText = "";
 
-        const messages = [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: query },
-        ];
+    if (results.length === 0) {
+      answerText = "Ich habe leider keine passenden Dokumente gefunden.";
+    } else {
+      const firstDoc = results[0].document;
 
-        const chatCompletion = await openaiClient.getChatCompletions(
-            deploymentName,
-            messages,
-            { temperature: 0.1, maxTokens: 800 } 
-        );
-        
-        context.log("OpenAI Response received successfully.");
+      // Titel-Feld: versuche mehrere typische RAG-Felder
+      const title =
+        firstDoc.title ||
+        firstDoc.fileName ||
+        firstDoc.file_name ||
+        firstDoc.metadata_title ||
+        firstDoc.filename ||
+        "Gefundenes Dokument";
 
-        const llmAnswer = chatCompletion.choices?.[0]?.message?.content || "Keine Antwort vom LLM erhalten.";
+      // Inhaltsfeld: versuche mehrere typische Feldnamen
+      const contentSnippet =
+        (
+          firstDoc.content ||
+          firstDoc.chunk ||
+          firstDoc.pageContent ||
+          firstDoc.text ||
+          firstDoc.page_text ||
+          ""
+        )
+          .toString()
+          .slice(0, 400);
 
-        context.res = {
-            status: 200,
-            body: { answer: llmAnswer, source: contextText }
-        };
-
-    } catch (error) {
-        // Dieser Block fängt den 1-2 Minuten Timeout-Fehler!
-        context.log.error(`RAG FATAL ERROR during OpenAI call: ${error.message}`);
-        context.res = {
-            status: 500,
-            body: { 
-                error: "Error during generation (Timeout or API failure).",
-                details: `OpenAI Error: ${error.message}`
-            }
-        };
+      answerText =
+        `Ich habe folgendes Dokument gefunden:\n\n` +
+        `Titel: ${title}\n\nAusschnitt:\n${contentSnippet}`;
     }
+
+    // Antwort für dein Frontend (data.answer)
+    context.res = {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: {
+        query,
+        results,
+        answer: answerText
+      }
+    };
+  } catch (err) {
+    context.log.error("Search function error:", err);
+    context.res = {
+      status: 500,
+      body: { error: "Search failed", details: err.message }
+    };
+  }
 };
