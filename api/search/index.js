@@ -1,7 +1,6 @@
 // api/search/index.js
 
 const { SearchClient, AzureKeyCredential } = require("@azure/search-documents");
-const { AzureOpenAI } = require("openai");
 
 module.exports = async function (context, req) {
     context.log("HTTP trigger 'search' processed a request.");
@@ -22,10 +21,10 @@ module.exports = async function (context, req) {
         const searchKey = process.env.SEARCH_KEY;
         const indexName = process.env.SEARCH_INDEX_RAG || process.env.SEARCH_INDEX;
 
-        const aoaiEndpoint   = process.env.AZURE_OPENAI_ENDPOINT;        // z.B. https://xxx.openai.azure.com
-        const aoaiKey        = process.env.AZURE_OPENAI_KEY;
-        const aoaiDeployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME; // chatbot-RAG-gpt
-        const aoaiApiVersion = process.env.AZURE_OPENAI_API_VERSION || "2024-10-21";
+        const aoaiEndpointRaw  = process.env.AZURE_OPENAI_ENDPOINT;         // z.B. https://xxx.openai.azure.com
+        const aoaiKey          = process.env.AZURE_OPENAI_KEY;
+        const aoaiDeployment   = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;  // chatbot-RAG-gpt
+        const aoaiApiVersion   = process.env.AZURE_OPENAI_API_VERSION || "2024-10-21";
 
         if (!searchEndpoint || !searchKey || !indexName) {
             context.log.error("Missing SEARCH_* env vars.");
@@ -36,7 +35,7 @@ module.exports = async function (context, req) {
             return;
         }
 
-        if (!aoaiEndpoint || !aoaiKey || !aoaiDeployment) {
+        if (!aoaiEndpointRaw || !aoaiKey || !aoaiDeployment) {
             context.log.error("Missing AZURE_OPENAI_* env vars.");
             context.res = {
                 status: 500,
@@ -44,6 +43,9 @@ module.exports = async function (context, req) {
             };
             return;
         }
+
+        // Trailing Slash entfernen, damit die URL sicher stimmt
+        const aoaiEndpoint = aoaiEndpointRaw.replace(/\/+$/, "");
 
         context.log("Using search index:", indexName);
 
@@ -99,40 +101,57 @@ module.exports = async function (context, req) {
             contextText = parts.join("\n\n");
         }
 
-        // 5) Azure OpenAI Client (empfohlener Weg für Azure)
-        const gptClient = new AzureOpenAI({
-            endpoint: aoaiEndpoint,
-            apiKey: aoaiKey,
-            apiVersion: aoaiApiVersion
-        });
-
+        // 5) GPT-Aufruf via fetch (Azure OpenAI REST API)
         let gptAnswer = null;
 
         if (contextText) {
+            const url =
+                `${aoaiEndpoint}/openai/deployments/${aoaiDeployment}` +
+                `/chat/completions?api-version=${aoaiApiVersion}`;
+
+            const messages = [
+                {
+                    role: "system",
+                    content:
+                        "Du bist ein technischer Assistent für Baumaschinen. " +
+                        "Antworte kurz, klar und praxisnah auf Deutsch. " +
+                        "Nutze ausschließlich den bereitgestellten Kontext. " +
+                        "Wenn etwas nicht im Kontext steht, sage das offen."
+                },
+                {
+                    role: "user",
+                    content:
+                        `Frage:\n${query}\n\n` +
+                        `Kontext aus Handbüchern:\n${contextText}`
+                }
+            ];
+
             try {
-                const completion = await gptClient.chat.completions.create({
-                    model: aoaiDeployment, // Deployment-Name!
-                    messages: [
-                        {
-                            role: "system",
-                            content:
-                                "Du bist ein technischer Assistent für Baumaschinen. " +
-                                "Antworte kurz, klar und praxisnah auf Deutsch. " +
-                                "Nutze ausschließlich den bereitgestellten Kontext. " +
-                                "Wenn etwas nicht im Kontext steht, sage das offen."
-                        },
-                        {
-                            role: "user",
-                            content:
-                                `Frage:\n${query}\n\n` +
-                                `Kontext aus Handbüchern:\n${contextText}`
-                        }
-                    ],
-                    temperature: 0.2
+                const gptResponse = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "api-key": aoaiKey
+                    },
+                    body: JSON.stringify({
+                        messages,
+                        temperature: 0.2
+                    })
                 });
 
-                gptAnswer =
-                    completion.choices?.[0]?.message?.content?.trim() || null;
+                const gptBodyText = await gptResponse.text();
+
+                if (!gptResponse.ok) {
+                    context.log.error(
+                        "Azure OpenAI error:",
+                        gptResponse.status,
+                        gptBodyText
+                    );
+                } else {
+                    const gptJson = JSON.parse(gptBodyText);
+                    gptAnswer =
+                        gptJson.choices?.[0]?.message?.content?.trim() || null;
+                }
             } catch (gptErr) {
                 context.log.error("GPT call failed:", gptErr);
             }
@@ -181,4 +200,3 @@ module.exports = async function (context, req) {
         };
     }
 };
-
