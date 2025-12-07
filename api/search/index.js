@@ -1,7 +1,7 @@
 // api/search/index.js
 
 const { SearchClient, AzureKeyCredential } = require("@azure/search-documents");
-const OpenAI = require("openai");
+const { AzureOpenAI } = require("openai");
 
 module.exports = async function (context, req) {
     context.log("HTTP trigger 'search' processed a request.");
@@ -22,9 +22,10 @@ module.exports = async function (context, req) {
         const searchKey = process.env.SEARCH_KEY;
         const indexName = process.env.SEARCH_INDEX_RAG || process.env.SEARCH_INDEX;
 
-        const aoaiEndpoint   = process.env.AZURE_OPENAI_ENDPOINT;        // z.B. https://xxx.openai.azure.com/openai/v1/
+        const aoaiEndpoint   = process.env.AZURE_OPENAI_ENDPOINT;        // z.B. https://xxx.openai.azure.com
         const aoaiKey        = process.env.AZURE_OPENAI_KEY;
         const aoaiDeployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME; // chatbot-RAG-gpt
+        const aoaiApiVersion = process.env.AZURE_OPENAI_API_VERSION || "2024-10-21";
 
         if (!searchEndpoint || !searchKey || !indexName) {
             context.log.error("Missing SEARCH_* env vars.");
@@ -70,7 +71,6 @@ module.exports = async function (context, req) {
 
         for await (const r of resultsIterator.results) {
             const caption = r.captions?.[0]?.text || null;
-
             results.push({
                 score: r.score,
                 caption,
@@ -80,7 +80,7 @@ module.exports = async function (context, req) {
 
         context.log("Anzahl Treffer:", results.length);
 
-        // 4) Kontext aus Treffern für GPT bauen (Top 3)
+        // 4) Kontext für GPT aus Treffern bauen (Top 3)
         let contextText = "";
         if (results.length > 0) {
             const maxDocsForContext = 3;
@@ -91,7 +91,7 @@ module.exports = async function (context, req) {
                 const text =
                     (r.caption || d.chunk || d.content || "")
                         .toString()
-                        .slice(0, 1200); // begrenzen, damit Prompt nicht zu groß wird
+                        .slice(0, 1200);
 
                 return `Quelle ${idx + 1} – ${title}:\n${text}`;
             });
@@ -99,25 +99,25 @@ module.exports = async function (context, req) {
             contextText = parts.join("\n\n");
         }
 
-        // 5) GPT-Client (Azure OpenAI über OpenAI-SDK)
-        const openai = new OpenAI({
+        // 5) Azure OpenAI Client (empfohlener Weg für Azure)
+        const gptClient = new AzureOpenAI({
+            endpoint: aoaiEndpoint,
             apiKey: aoaiKey,
-            baseURL: aoaiEndpoint  // muss /openai/v1/ enthalten
+            apiVersion: aoaiApiVersion
         });
 
         let gptAnswer = null;
 
         if (contextText) {
             try {
-                const completion = await openai.chat.completions.create({
-                    // Wichtig: hier der Deployment-Name, nicht "gpt-4o-mini"
-                    model: aoaiDeployment,
+                const completion = await gptClient.chat.completions.create({
+                    model: aoaiDeployment, // Deployment-Name!
                     messages: [
                         {
                             role: "system",
                             content:
                                 "Du bist ein technischer Assistent für Baumaschinen. " +
-                                "Antworte immer kurz, klar und praxisnah auf Deutsch. " +
+                                "Antworte kurz, klar und praxisnah auf Deutsch. " +
                                 "Nutze ausschließlich den bereitgestellten Kontext. " +
                                 "Wenn etwas nicht im Kontext steht, sage das offen."
                         },
@@ -131,7 +131,8 @@ module.exports = async function (context, req) {
                     temperature: 0.2
                 });
 
-                gptAnswer = completion.choices[0]?.message?.content?.trim() || null;
+                gptAnswer =
+                    completion.choices?.[0]?.message?.content?.trim() || null;
             } catch (gptErr) {
                 context.log.error("GPT call failed:", gptErr);
             }
@@ -164,9 +165,7 @@ module.exports = async function (context, req) {
         // 7) Antwort ans Frontend
         context.res = {
             status: 200,
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: {
                 query,
                 semanticAnswers,
@@ -182,3 +181,4 @@ module.exports = async function (context, req) {
         };
     }
 };
+
