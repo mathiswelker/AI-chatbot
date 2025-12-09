@@ -12,7 +12,7 @@ import {
 function App() {
   const [messages, setMessages] = useState([
     {
-      message: "Hallo! Wie kann ich dir helfen?",
+      message: "Hallo, um Ihnen schnellstmöglich Auskunft geben zu können, benötige ich folgende Informationen: Fehlercode und Hersteller der Maschine",
       sender: "bot",
       direction: "incoming"
     }
