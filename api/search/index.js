@@ -16,6 +16,10 @@ module.exports = async function (context, req) {
             return;
         }
 
+        // Begrüßungstext, der immer am Anfang der Antwort stehen soll
+        const introText =
+            "Hallo, um Ihnen schnellstmöglich Auskunft geben zu können, benötige ich folgende Informationen: Fehlercode und Hersteller der Maschine.";
+
         // 2) ENV Variablen
         const searchEndpoint = process.env.SEARCH_ENDPOINT;
         const searchKey = process.env.SEARCH_KEY;
@@ -157,14 +161,19 @@ module.exports = async function (context, req) {
             }
         }
 
-        // 6) Fallback, falls GPT nichts liefert
-        let answerText = "";
+        // 6) Antwortlogik inkl. Fallback, falls nichts Konkretes im System ist
+        let answerCore = "";
 
-        if (results.length === 0) {
-            answerText = "Ich habe leider keine passenden Dokumente gefunden.";
+        // Kein konkreter Inhalt gefunden -> dein Kontakttext
+        if (results.length === 0 || !contextText) {
+            answerCore =
+                "Leider ist im System nichts passendes hinterlegt. Bitte wenden Sie sich an folgenden Kontakt:\n\n" +
+                "Max Mustermann, 0815-123456, ichweissnichtweiter@hilfmir.de";
         } else if (gptAnswer) {
-            answerText = gptAnswer;
+            // GPT-Antwort vorhanden
+            answerCore = gptAnswer;
         } else {
+            // Fallback auf erstes Dokument
             const firstResult = results[0];
             const firstDoc = firstResult.document;
 
@@ -174,12 +183,15 @@ module.exports = async function (context, req) {
                 firstDoc.chunk ||
                 "Kein Ausschnitt verfügbar";
 
-            answerText =
+            answerCore =
                 `Ich habe folgendes Dokument gefunden:\n\n` +
                 `Titel: ${title}\n\nAusschnitt:\n${contentSnippet
                     .toString()
                     .slice(0, 800)}`;
         }
+
+        // Begrüßungstext + eigentliche Antwort kombinieren
+        const answerText = `${introText}\n\n${answerCore}`;
 
         // 7) Antwort ans Frontend
         context.res = {
