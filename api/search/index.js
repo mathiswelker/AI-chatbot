@@ -17,7 +17,7 @@ module.exports = async function (context, req) {
         }
 
         // Begrüßungstext, der immer am Anfang der Antwort stehen soll
-        const introText =
+        // const introText =
             "Hallo, um Ihnen schnellstmöglich Auskunft geben zu können, benötige ich folgende Informationen: Fehlercode und Hersteller der Maschine.";
 
         // 2) ENV Variablen
@@ -212,3 +212,4 @@ module.exports = async function (context, req) {
         };
     }
 };
+
