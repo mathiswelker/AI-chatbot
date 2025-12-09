@@ -16,10 +16,6 @@ module.exports = async function (context, req) {
             return;
         }
 
-        // Begrüßungstext, der immer am Anfang der Antwort stehen soll
-        // const introText =
-            "Hallo, um Ihnen schnellstmöglich Auskunft geben zu können, benötige ich folgende Informationen: Fehlercode und Hersteller der Maschine.";
-
         // 2) ENV Variablen
         const searchEndpoint = process.env.SEARCH_ENDPOINT;
         const searchKey = process.env.SEARCH_KEY;
@@ -27,7 +23,7 @@ module.exports = async function (context, req) {
 
         const aoaiEndpointRaw  = process.env.AZURE_OPENAI_ENDPOINT;         // z.B. https://xxx.openai.azure.com
         const aoaiKey          = process.env.AZURE_OPENAI_KEY;
-        const aoaiDeployment   = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;  // chatbot-RAG-gpt
+        const aoaiDeployment   = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;  // z.B. chatbot-RAG-gpt
         const aoaiApiVersion   = process.env.AZURE_OPENAI_API_VERSION || "2024-10-21";
 
         if (!searchEndpoint || !searchKey || !indexName) {
@@ -162,16 +158,16 @@ module.exports = async function (context, req) {
         }
 
         // 6) Antwortlogik inkl. Fallback, falls nichts Konkretes im System ist
-        let answerCore = "";
+        let answerText = "";
 
         // Kein konkreter Inhalt gefunden -> dein Kontakttext
         if (results.length === 0 || !contextText) {
-            answerCore =
+            answerText =
                 "Leider ist im System nichts passendes hinterlegt. Bitte wenden Sie sich an folgenden Kontakt:\n\n" +
                 "Max Mustermann, 0815-123456, ichweissnichtweiter@hilfmir.de";
         } else if (gptAnswer) {
             // GPT-Antwort vorhanden
-            answerCore = gptAnswer;
+            answerText = gptAnswer;
         } else {
             // Fallback auf erstes Dokument
             const firstResult = results[0];
@@ -183,15 +179,12 @@ module.exports = async function (context, req) {
                 firstDoc.chunk ||
                 "Kein Ausschnitt verfügbar";
 
-            answerCore =
+            answerText =
                 `Ich habe folgendes Dokument gefunden:\n\n` +
                 `Titel: ${title}\n\nAusschnitt:\n${contentSnippet
                     .toString()
                     .slice(0, 800)}`;
         }
-
-        // Begrüßungstext + eigentliche Antwort kombinieren
-        const answerText = `${introText}\n\n${answerCore}`;
 
         // 7) Antwort ans Frontend
         context.res = {
@@ -212,4 +205,3 @@ module.exports = async function (context, req) {
         };
     }
 };
-
