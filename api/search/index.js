@@ -21,9 +21,9 @@ module.exports = async function (context, req) {
         const searchKey = process.env.SEARCH_KEY;
         const indexName = process.env.SEARCH_INDEX_RAG || process.env.SEARCH_INDEX;
 
-        const aoaiEndpointRaw  = process.env.AZURE_OPENAI_ENDPOINT;         // z.B. https://xxx.openai.azure.com
+        const aoaiEndpointRaw  = process.env.AZURE_OPENAI_ENDPOINT;        
         const aoaiKey          = process.env.AZURE_OPENAI_KEY;
-        const aoaiDeployment   = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;  // z.B. chatbot-RAG-gpt
+        const aoaiDeployment   = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;  
         const aoaiApiVersion   = process.env.AZURE_OPENAI_API_VERSION || "2024-10-21";
 
         if (!searchEndpoint || !searchKey || !indexName) {
@@ -205,3 +205,4 @@ module.exports = async function (context, req) {
         };
     }
 };
+
